@@ -1,0 +1,23 @@
+# Data
+data/
+*.npz
+*.parquet
+*.pt
+*.bin
+*.gz
+
+# Training outputs
+runs/
+checkpoints/
+*.ckpt
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
