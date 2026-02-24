@@ -32,6 +32,12 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--num_workers", type=int, default=2)
     ap.add_argument("--out_dir", default="runs/baseline")
+    ap.add_argument(
+        "--early_stop_patience",
+        type=int,
+        default=0,
+        help="Stop if val AUC does not improve for this many epochs (0 disables).",
+    )
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -55,6 +61,10 @@ def main():
     loss_fn = torch.nn.BCEWithLogitsLoss()
 
     step = 0
+    best_auc = -float("inf")
+    best_epoch = -1
+    bad_epochs = 0
+    best_path = os.path.join(args.out_dir, "model_best.pt")
     for epoch in range(args.epochs):
         model.train()
         t0 = time.time()
@@ -80,6 +90,29 @@ def main():
         print("VAL:", val_metrics)
         with open(os.path.join(args.out_dir, f"val_epoch{epoch}.json"), "w") as f:
             json.dump(val_metrics, f, indent=2)
+
+        val_auc = float(val_metrics["auc"])
+        if val_auc > best_auc:
+            best_auc = val_auc
+            best_epoch = epoch
+            bad_epochs = 0
+            torch.save(model.state_dict(), best_path)
+            with open(os.path.join(args.out_dir, "best_val.json"), "w") as f:
+                json.dump({"epoch": best_epoch, **val_metrics}, f, indent=2)
+            print(f"New best AUC {best_auc:.6f} at epoch {best_epoch}; saved {best_path}")
+        else:
+            bad_epochs += 1
+            print(
+                f"No val AUC improvement at epoch {epoch} "
+                f"(best {best_auc:.6f} @ epoch {best_epoch}); bad_epochs={bad_epochs}"
+            )
+            if args.early_stop_patience > 0 and bad_epochs >= args.early_stop_patience:
+                print(f"Early stopping triggered (patience={args.early_stop_patience}).")
+                break
+
+    if best_epoch >= 0 and os.path.exists(best_path):
+        model.load_state_dict(torch.load(best_path, map_location=device))
+        print(f"Loaded best checkpoint from epoch {best_epoch} for test evaluation.")
 
     test_metrics = eval_loop(model, test_loader, device)
     print("TEST:", test_metrics)
