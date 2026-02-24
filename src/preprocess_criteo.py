@@ -1,6 +1,7 @@
 import argparse, json, os
 import numpy as np
 import hashlib
+from tqdm import tqdm
 
 NUM_DENSE = 13
 NUM_SPARSE = 26
@@ -49,7 +50,7 @@ def main():
     # Load
     i = 0
     with open(args.in_txt, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
+        for line in tqdm(f, total=total, desc="Processing"):
             if args.max_rows and i >= args.max_rows:
                 break
             parts = line.rstrip("\n").split("\t")
