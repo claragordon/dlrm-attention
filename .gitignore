@@ -7,7 +7,6 @@ data/
 *.gz
 
 # Training outputs
-runs/
 checkpoints/
 *.ckpt
 *.log
