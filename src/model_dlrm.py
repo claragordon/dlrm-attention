@@ -10,7 +10,7 @@ class MLP(nn.Module):
         for h in layer_dims:
             layers.append(nn.Linear(d, h))
             layers.append(nn.ReLU())
-            if dropout > 0:=
+            if dropout > 0:
                 layers.append(nn.Dropout(dropout))
             d = h
         self.net = nn.Sequential(*layers)

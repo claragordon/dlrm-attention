@@ -1,5 +1,5 @@
 python -m scripts.train_dlrm \
-  --data_dir data/processed/day_2_2m_h131072 \
+  --data_dir data/processed \
   --hash_size 131072 \
   --emb_dim 64 \
   --batch_size 4096 \
