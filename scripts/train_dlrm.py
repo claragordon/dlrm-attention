@@ -1,4 +1,7 @@
-import argparse, json, os, time
+import argparse
+import json
+import os
+import time
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -19,8 +22,8 @@ def eval_loop(model, loader, device):
             ys.append(y.numpy())
             logits.append(logit.detach().cpu().numpy())
     y_true = np.concatenate(ys)
-    l = np.concatenate(logits)
-    return compute_metrics(y_true, l)
+    logits_arr = np.concatenate(logits)
+    return compute_metrics(y_true, logits_arr)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -31,6 +34,8 @@ def main():
     ap.add_argument("--epochs", type=int, default=1)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--num_workers", type=int, default=2)
+    ap.add_argument("--use_attention", action="store_false")
+    ap.add_argument("--attention_heads", type=int, default=4)
     ap.add_argument("--out_dir", default="runs/baseline")
     ap.add_argument(
         "--early_stop_patience",
@@ -56,7 +61,12 @@ def main():
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False,
                              num_workers=args.num_workers, pin_memory=True)
 
-    model = DLRM(hash_size=args.hash_size, emb_dim=args.emb_dim).to(device)
+    model = DLRM(
+        hash_size=args.hash_size,
+        emb_dim=args.emb_dim,
+        use_attention=args.use_attention,
+        attention_heads=args.attention_heads,
+    ).to(device)
     opt = Adam(model.parameters(), lr=args.lr)
     loss_fn = torch.nn.BCEWithLogitsLoss()
 

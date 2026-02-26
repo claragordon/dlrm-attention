@@ -35,11 +35,14 @@ class DLRM(nn.Module):
         bottom_mlp=(128, 64),      # ends at emb_dim
         top_mlp=(512, 256),
         dropout=0.0,
+        use_attention=False,
+        attention_heads=4,
     ):
         super().__init__()
         self.num_sparse_fields = num_sparse_fields
         self.emb_dim = emb_dim
         self.hash_size = hash_size
+        self.use_attention = use_attention
 
         # One embedding table per field
         self.embs = nn.ModuleList([
@@ -50,6 +53,17 @@ class DLRM(nn.Module):
         # Dense -> emb_dim
         assert bottom_mlp[-1] == emb_dim, "bottom_mlp must end at emb_dim"
         self.bottom = MLP(num_dense, bottom_mlp, dropout=dropout)
+
+        if self.use_attention:
+            if emb_dim % attention_heads != 0:
+                raise ValueError("emb_dim must be divisible by attention_heads")
+            self.attn = nn.MultiheadAttention(
+                embed_dim=emb_dim,
+                num_heads=attention_heads,
+                dropout=dropout,
+                batch_first=True,
+            )
+            self.attn_norm = nn.LayerNorm(emb_dim)
 
         # Interaction dim = emb_dim + T*(T-1)/2 where T = 1 + num_sparse_fields
         T = 1 + num_sparse_fields
@@ -96,6 +110,10 @@ class DLRM(nn.Module):
 
         # stack tokens: [B, T, D]
         x_tokens = torch.stack([dense_tok] + emb_toks, dim=1)
+        if self.use_attention:
+            attn_out, _ = self.attn(x_tokens, x_tokens, x_tokens, need_weights=False)
+            # Residual + layer norm stabilizes attention training.
+            x_tokens = self.attn_norm(x_tokens + attn_out)
 
         x = self.interaction(x_tokens)
         x = self.top(x)
