@@ -34,7 +34,7 @@ def main():
     ap.add_argument("--epochs", type=int, default=1)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--num_workers", type=int, default=2)
-    ap.add_argument("--use_attention", action="store_false")
+    ap.add_argument("--use_attention", action="store_true")
     ap.add_argument("--attention_heads", type=int, default=4)
     ap.add_argument("--out_dir", default="runs/baseline")
     ap.add_argument(
