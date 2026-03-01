@@ -28,12 +28,11 @@ def generate_base_case(n_rows=200_000, n_users=50_000, n_items=100_000, emb_dim=
         dense = rng.normal(0, 1, size=(13,)).astype(np.float32)
 
         s_user_item = float(np.dot(user_emb[u], item_emb[i]) / np.sqrt(emb_dim))
-        s_hist_item = float(np.mean([np.dot(item_emb[i], item_emb[h]) / np.sqrt(emb_dim) for h in hist]))
         s_dense = float(np.dot(dense, w_dense))
         noise = float(rng.normal(0, 0.2))
 
         bias = -3.3  # sigmoid(-3.3) ~= 0.035 when other terms average near zero
-        score = bias + 1.0 * s_user_item + 0.8 * s_hist_item + 0.3 * s_dense + noise
+        score = bias + 1.0 * s_user_item + 0.3 * s_dense + noise
         p = sigmoid(score)
         y[idx] = 1 if rng.random() < p else 0
 
@@ -43,7 +42,7 @@ def generate_base_case(n_rows=200_000, n_users=50_000, n_items=100_000, emb_dim=
         for j in range(8):
             sparse[2 + j] = int(hist[j]) + 1
         for j in range(10, 26):
-            sparse[j] = int(rng.integers(1, 20000))
+            sparse[j] = 1
         dense_arr[idx] = dense
         sparse_arr[idx] = sparse
 
