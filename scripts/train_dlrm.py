@@ -67,6 +67,15 @@ def main():
         use_attention=args.use_attention,
         attention_heads=args.attention_heads,
     ).to(device)
+    run_config = {
+        "args": vars(args),
+        "device": device,
+        "rows_train": len(train_ds),
+        "rows_val": len(val_ds),
+        "rows_test": len(test_ds),
+    }
+    with open(os.path.join(args.out_dir, "config.json"), "w") as f:
+        json.dump(run_config, f, indent=2)
     opt = Adam(model.parameters(), lr=args.lr)
     loss_fn = torch.nn.BCEWithLogitsLoss()
 
