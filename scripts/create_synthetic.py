@@ -38,7 +38,7 @@ def generate_base_case(
         i = rng.integers(0, n_items)
         hist = rng.integers(0, n_items, size=(8,)) if include_history_noise else None
 
-        dense = rng.normal(0, 1, size=(13,)).astype(np.float32)
+        dense = np.zeros((13,), dtype=np.float32)
 
         s_user_item = float(np.dot(user_emb[u], item_emb[i]) / np.sqrt(emb_dim))
         s_dense = float(np.dot(dense, w_dense_vec))
