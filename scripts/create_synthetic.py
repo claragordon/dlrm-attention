@@ -19,6 +19,8 @@ def generate_base_case(
     w_dense=0.3,
     bias=-3.3,
     deterministic_labels=False,
+    include_history_noise=False,
+    unused_sparse_id=0,
 ):
     rng = np.random.default_rng(seed)
 
@@ -34,7 +36,7 @@ def generate_base_case(
         # Select random user, item, and item history
         u = rng.integers(0, n_users)
         i = rng.integers(0, n_items)
-        hist = rng.integers(0, n_items, size=(8,))
+        hist = rng.integers(0, n_items, size=(8,)) if include_history_noise else None
 
         dense = rng.normal(0, 1, size=(13,)).astype(np.float32)
 
@@ -52,10 +54,11 @@ def generate_base_case(
         sparse = [0] * 26
         sparse[0] = u + 1
         sparse[1] = i + 1
-        for j in range(8):
-            sparse[2 + j] = int(hist[j]) + 1
+        if include_history_noise:
+            for j in range(8):
+                sparse[2 + j] = int(hist[j]) + 1
         for j in range(10, 26):
-            sparse[j] = 1
+            sparse[j] = int(unused_sparse_id)
         dense_arr[idx] = dense
         sparse_arr[idx] = sparse
 
@@ -115,6 +118,8 @@ def main():
     ap.add_argument("--w_dense", type=float, default=0.3)
     ap.add_argument("--bias", type=float, default=-3.3)
     ap.add_argument("--deterministic_labels", action="store_true")
+    ap.add_argument("--include_history_noise", action="store_true")
+    ap.add_argument("--unused_sparse_id", type=int, default=0)
     ap.add_argument("--train_frac", type=float, default=0.80)
     ap.add_argument("--val_frac", type=float, default=0.10)
     ap.add_argument("--write_tsv", action="store_true")
@@ -135,6 +140,8 @@ def main():
         w_dense=args.w_dense,
         bias=args.bias,
         deterministic_labels=args.deterministic_labels,
+        include_history_noise=args.include_history_noise,
+        unused_sparse_id=args.unused_sparse_id,
     )
     write_npz_splits(
         y=y,

@@ -32,7 +32,7 @@ class DLRM(nn.Module):
         num_dense=13,
         emb_dim=64,
         hash_size=131072,          # must match preprocessing
-        bottom_mlp=(128, 64),      # ends at emb_dim
+        bottom_mlp=None,           # defaults to (128, emb_dim)
         top_mlp=(512, 256),
         dropout=0.0,
         use_attention=False,
@@ -51,6 +51,8 @@ class DLRM(nn.Module):
         ])
 
         # Dense -> emb_dim
+        if bottom_mlp is None:
+            bottom_mlp = (128, emb_dim)
         assert bottom_mlp[-1] == emb_dim, "bottom_mlp must end at emb_dim"
         self.bottom = MLP(num_dense, bottom_mlp, dropout=dropout)
 
