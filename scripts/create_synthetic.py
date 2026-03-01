@@ -65,7 +65,15 @@ def generate_base_case(
     return y, dense_arr, sparse_arr
 
 
-def write_npz_splits(y, dense, sparse, out_dir, train_frac=0.8, val_frac=0.1):
+def write_npz_splits(
+    y,
+    dense,
+    sparse,
+    out_dir,
+    train_frac=0.8,
+    val_frac=0.1,
+    generation_config=None,
+):
     total = y.shape[0]
     n_train = int(total * train_frac)
     n_val = int(total * val_frac)
@@ -92,6 +100,8 @@ def write_npz_splits(y, dense, sparse, out_dir, train_frac=0.8, val_frac=0.1):
         "ctr_val": float(y[splits["val"]].mean()) if n_val else 0.0,
         "ctr_test": float(y[splits["test"]].mean()) if n_test else 0.0,
     }
+    if generation_config is not None:
+        stats["generation_config"] = generation_config
     with open(os.path.join(out_dir, "stats.json"), "w") as f:
         json.dump(stats, f, indent=2)
 
@@ -143,6 +153,22 @@ def main():
         include_history_noise=args.include_history_noise,
         unused_sparse_id=args.unused_sparse_id,
     )
+    generation_config = {
+        "rows": int(args.rows),
+        "users": int(args.users),
+        "n_items": int(args.n_items),
+        "emb_dim": int(args.emb_dim),
+        "seed": int(args.seed),
+        "noise_std": float(args.noise_std),
+        "w_user_item": float(args.w_user_item),
+        "w_dense": float(args.w_dense),
+        "bias": float(args.bias),
+        "deterministic_labels": bool(args.deterministic_labels),
+        "include_history_noise": bool(args.include_history_noise),
+        "unused_sparse_id": int(args.unused_sparse_id),
+        "train_frac": float(args.train_frac),
+        "val_frac": float(args.val_frac),
+    }
     write_npz_splits(
         y=y,
         dense=dense,
@@ -150,6 +176,7 @@ def main():
         out_dir=args.out_dir,
         train_frac=args.train_frac,
         val_frac=args.val_frac,
+        generation_config=generation_config,
     )
     if args.write_tsv:
         write_tsv(y, dense, sparse, os.path.join(args.out_dir, "base.tsv"))
