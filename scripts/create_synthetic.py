@@ -26,15 +26,26 @@ def generate_base_case(
     w_seq=1.0,
     recency_alpha=2.0,
     zero_dense=False,
+    n_anchor_fields=0,
+    anchor_cardinality=128,
 ):
     rng = np.random.default_rng(seed)
     if dataset_mode not in {"base", "seq_easy", "seq_hard"}:
         raise ValueError("dataset_mode must be one of: base, seq_easy, seq_hard")
     if history_len < 1 or history_len > 8:
         raise ValueError("history_len must be in [1, 8] to fit sparse[2:10].")
+    if anchor_cardinality < 2:
+        raise ValueError("anchor_cardinality must be >= 2.")
+    max_anchor_fields = 26 - (2 + history_len)
+    if n_anchor_fields < 0 or n_anchor_fields > max_anchor_fields:
+        raise ValueError(f"n_anchor_fields must be in [0, {max_anchor_fields}] for history_len={history_len}.")
 
     user_emb = rng.normal(0, 1, size=(n_users, emb_dim)).astype(np.float32)
     item_emb = rng.normal(0, 1, size=(n_items, emb_dim)).astype(np.float32)
+    anchor_embs = [
+        rng.normal(0, 1, size=(anchor_cardinality, emb_dim)).astype(np.float32)
+        for _ in range(n_anchor_fields)
+    ]
     w_dense_vec = rng.normal(0, 0.2, size=(13,)).astype(np.float32)
     recency_weights = np.linspace(1.0, recency_alpha, history_len).astype(np.float32)
     recency_weights /= recency_weights.sum()
@@ -69,9 +80,17 @@ def generate_base_case(
             else:
                 # Stronger sequential dependency: best matching recent signal.
                 s_seq = float(np.max(recency_weights * sims))
+        s_anchor = 0.0
+        anchor_ids = []
+        for k in range(n_anchor_fields):
+            # Deterministic anchor IDs tied to user/item create additional non-sequence signal.
+            aid = int((31 * int(u) + 17 * int(i) + 13 * k) % anchor_cardinality)
+            anchor_ids.append(aid + 1)
+            s_anchor += float(np.dot(item_emb[i], anchor_embs[k][aid]) / np.sqrt(emb_dim))
         noise = float(rng.normal(0, noise_std))
 
-        score = bias + w_user_item * s_user_item + w_seq * s_seq + w_dense * s_dense + noise
+        s_nonseq = s_user_item + s_anchor
+        score = bias + w_user_item * s_nonseq + w_seq * s_seq + w_dense * s_dense + noise
         p = sigmoid(score)
         if deterministic_labels:
             y[idx] = 1 if score > 0.0 else 0
@@ -84,8 +103,12 @@ def generate_base_case(
         if dataset_mode != "base" or include_history_noise:
             for j in range(history_len):
                 sparse[2 + j] = int(hist[j]) + 1
+        anchor_start = 2 + history_len
+        for k, aid in enumerate(anchor_ids):
+            sparse[anchor_start + k] = aid
         for j in range(2 + history_len, 26):
-            sparse[j] = int(unused_sparse_id)
+            if sparse[j] == 0:
+                sparse[j] = int(unused_sparse_id)
         dense_arr[idx] = dense
         sparse_arr[idx] = sparse
 
@@ -159,6 +182,8 @@ def main():
     ap.add_argument("--history_len", type=int, default=8)
     ap.add_argument("--recency_alpha", type=float, default=2.0)
     ap.add_argument("--zero_dense", action="store_true")
+    ap.add_argument("--n_anchor_fields", type=int, default=0)
+    ap.add_argument("--anchor_cardinality", type=int, default=128)
     ap.add_argument("--deterministic_labels", action="store_true")
     ap.add_argument("--include_history_noise", action="store_true")
     ap.add_argument("--unused_sparse_id", type=int, default=0)
@@ -186,6 +211,8 @@ def main():
         history_len=args.history_len,
         recency_alpha=args.recency_alpha,
         zero_dense=args.zero_dense,
+        n_anchor_fields=args.n_anchor_fields,
+        anchor_cardinality=args.anchor_cardinality,
         deterministic_labels=args.deterministic_labels,
         include_history_noise=args.include_history_noise,
         unused_sparse_id=args.unused_sparse_id,
@@ -205,6 +232,8 @@ def main():
         "w_seq": float(args.w_seq),
         "w_dense": float(args.w_dense),
         "bias": float(args.bias),
+        "n_anchor_fields": int(args.n_anchor_fields),
+        "anchor_cardinality": int(args.anchor_cardinality),
         "deterministic_labels": bool(args.deterministic_labels),
         "include_history_noise": bool(args.include_history_noise),
         "unused_sparse_id": int(args.unused_sparse_id),
