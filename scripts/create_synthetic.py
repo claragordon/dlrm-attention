@@ -89,7 +89,7 @@ def generate_base_case(
             s_anchor += float(np.dot(item_emb[i], anchor_embs[k][aid]) / np.sqrt(emb_dim))
         noise = float(rng.normal(0, noise_std))
 
-        s_nonseq = s_user_item + s_anchor
+        s_nonseq = s_user_item + s_anchor / np.sqrt(n_anchor_fields)
         score = bias + w_user_item * s_nonseq + w_seq * s_seq + w_dense * s_dense + noise
         p = sigmoid(score)
         if deterministic_labels:
