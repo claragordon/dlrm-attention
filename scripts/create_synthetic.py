@@ -21,12 +21,23 @@ def generate_base_case(
     deterministic_labels=False,
     include_history_noise=False,
     unused_sparse_id=0,
+    dataset_mode="base",
+    history_len=8,
+    w_seq=1.0,
+    recency_alpha=2.0,
+    zero_dense=False,
 ):
     rng = np.random.default_rng(seed)
+    if dataset_mode not in {"base", "seq_easy", "seq_hard"}:
+        raise ValueError("dataset_mode must be one of: base, seq_easy, seq_hard")
+    if history_len < 1 or history_len > 8:
+        raise ValueError("history_len must be in [1, 8] to fit sparse[2:10].")
 
     user_emb = rng.normal(0, 1, size=(n_users, emb_dim)).astype(np.float32)
     item_emb = rng.normal(0, 1, size=(n_items, emb_dim)).astype(np.float32)
     w_dense_vec = rng.normal(0, 0.2, size=(13,)).astype(np.float32)
+    recency_weights = np.linspace(1.0, recency_alpha, history_len).astype(np.float32)
+    recency_weights /= recency_weights.sum()
 
     y = np.zeros((n_rows,), dtype=np.uint8)
     dense_arr = np.zeros((n_rows, 13), dtype=np.float32)
@@ -36,15 +47,31 @@ def generate_base_case(
         # Select random user, item, and item history
         u = rng.integers(0, n_users)
         i = rng.integers(0, n_items)
-        hist = rng.integers(0, n_items, size=(8,)) if include_history_noise else None
+        hist = rng.integers(0, n_items, size=(history_len,))
 
-        dense = np.zeros((13,), dtype=np.float32)
+        if zero_dense:
+            dense = np.zeros((13,), dtype=np.float32)
+        else:
+            dense = rng.normal(0, 1, size=(13,)).astype(np.float32)
 
         s_user_item = float(np.dot(user_emb[u], item_emb[i]) / np.sqrt(emb_dim))
         s_dense = float(np.dot(dense, w_dense_vec))
+        if dataset_mode == "base":
+            s_seq = 0.0
+        else:
+            sims = np.array(
+                [np.dot(item_emb[i], item_emb[h]) / np.sqrt(emb_dim) for h in hist],
+                dtype=np.float32,
+            )
+            if dataset_mode == "seq_easy":
+                # Mild sequential dependency: weighted average similarity with recency.
+                s_seq = float(np.dot(recency_weights, sims))
+            else:
+                # Stronger sequential dependency: best matching recent signal.
+                s_seq = float(np.max(recency_weights * sims))
         noise = float(rng.normal(0, noise_std))
 
-        score = bias + w_user_item * s_user_item + w_dense * s_dense + noise
+        score = bias + w_user_item * s_user_item + w_seq * s_seq + w_dense * s_dense + noise
         p = sigmoid(score)
         if deterministic_labels:
             y[idx] = 1 if score > 0.0 else 0
@@ -54,10 +81,10 @@ def generate_base_case(
         sparse = [0] * 26
         sparse[0] = u + 1
         sparse[1] = i + 1
-        if include_history_noise:
-            for j in range(8):
+        if dataset_mode != "base" or include_history_noise:
+            for j in range(history_len):
                 sparse[2 + j] = int(hist[j]) + 1
-        for j in range(10, 26):
+        for j in range(2 + history_len, 26):
             sparse[j] = int(unused_sparse_id)
         dense_arr[idx] = dense
         sparse_arr[idx] = sparse
@@ -125,8 +152,13 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--noise_std", type=float, default=0.2)
     ap.add_argument("--w_user_item", type=float, default=1.0)
+    ap.add_argument("--w_seq", type=float, default=1.0)
     ap.add_argument("--w_dense", type=float, default=0.3)
     ap.add_argument("--bias", type=float, default=-3.3)
+    ap.add_argument("--dataset_mode", choices=["base", "seq_easy", "seq_hard"], default="base")
+    ap.add_argument("--history_len", type=int, default=8)
+    ap.add_argument("--recency_alpha", type=float, default=2.0)
+    ap.add_argument("--zero_dense", action="store_true")
     ap.add_argument("--deterministic_labels", action="store_true")
     ap.add_argument("--include_history_noise", action="store_true")
     ap.add_argument("--unused_sparse_id", type=int, default=0)
@@ -147,8 +179,13 @@ def main():
         seed=args.seed,
         noise_std=args.noise_std,
         w_user_item=args.w_user_item,
+        w_seq=args.w_seq,
         w_dense=args.w_dense,
         bias=args.bias,
+        dataset_mode=args.dataset_mode,
+        history_len=args.history_len,
+        recency_alpha=args.recency_alpha,
+        zero_dense=args.zero_dense,
         deterministic_labels=args.deterministic_labels,
         include_history_noise=args.include_history_noise,
         unused_sparse_id=args.unused_sparse_id,
@@ -159,8 +196,13 @@ def main():
         "n_items": int(args.n_items),
         "emb_dim": int(args.emb_dim),
         "seed": int(args.seed),
+        "dataset_mode": args.dataset_mode,
+        "history_len": int(args.history_len),
+        "recency_alpha": float(args.recency_alpha),
+        "zero_dense": bool(args.zero_dense),
         "noise_std": float(args.noise_std),
         "w_user_item": float(args.w_user_item),
+        "w_seq": float(args.w_seq),
         "w_dense": float(args.w_dense),
         "bias": float(args.bias),
         "deterministic_labels": bool(args.deterministic_labels),
