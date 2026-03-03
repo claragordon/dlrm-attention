@@ -1,0 +1,33 @@
+{
+  "rows_total": 1000000,
+  "rows_train": 800000,
+  "rows_val": 100000,
+  "rows_test": 100000,
+  "ctr_total": 0.072579,
+  "ctr_train": 0.072685,
+  "ctr_val": 0.07165,
+  "ctr_test": 0.07266,
+  "generation_config": {
+    "rows": 1000000,
+    "users": 1200,
+    "n_items": 1200,
+    "emb_dim": 16,
+    "seed": 42,
+    "dataset_mode": "seq_easy",
+    "history_len": 8,
+    "recency_alpha": 1.5,
+    "zero_dense": false,
+    "noise_std": 0.1,
+    "w_user_item": 0.5,
+    "w_seq": 0.3,
+    "w_dense": 0.25,
+    "bias": -3.55,
+    "n_anchor_fields": 10,
+    "anchor_cardinality": 128,
+    "deterministic_labels": false,
+    "include_history_noise": false,
+    "unused_sparse_id": 0,
+    "train_frac": 0.8,
+    "val_frac": 0.1
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "args": {
+    "data_dir": "data/synthetic/base_realistic_v25_a10",
+    "hash_size": 131072,
+    "emb_dim": 16,
+    "batch_size": 4096,
+    "epochs": 20,
+    "lr": 0.0002,
+    "num_workers": 2,
+    "use_attention": true,
+    "attention_heads": 4,
+    "out_dir": "runs/base_realistic_v25_a10_attn",
+    "early_stop_patience": 5
+  },
+  "device": "cuda",
+  "rows_train": 800000,
+  "rows_val": 100000,
+  "rows_test": 100000
+}
