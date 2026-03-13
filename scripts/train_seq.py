@@ -44,6 +44,9 @@ def main():
     ap.add_argument("--num_heads", type=int, default=4)
     ap.add_argument("--ffn_dim", type=int, default=256)
     ap.add_argument("--dropout", type=float, default=0.1)
+    ap.add_argument("--use_flex_attention", action="store_true")
+    ap.add_argument("--recency_bias", type=float, default=0.0)
+    ap.add_argument("--causal", action="store_true")
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -87,6 +90,9 @@ def main():
         num_heads=args.num_heads,
         ffn_dim=args.ffn_dim,
         dropout=args.dropout,
+        use_flex_attention=args.use_flex_attention,
+        recency_bias=args.recency_bias,
+        causal=args.causal,
     ).to(device)
 
     run_config = {
