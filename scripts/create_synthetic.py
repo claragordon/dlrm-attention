@@ -89,7 +89,7 @@ def generate_base_case(
             s_anchor += float(np.dot(item_emb[i], anchor_embs[k][aid]) / np.sqrt(emb_dim))
         noise = float(rng.normal(0, noise_std))
 
-        s_nonseq = s_user_item + s_anchor / np.sqrt(n_anchor_fields)
+        s_nonseq = s_user_item + s_anchor / np.sqrt(max(1, n_anchor_fields))
         score = bias + w_user_item * s_nonseq + w_seq * s_seq + w_dense * s_dense + noise
         p = sigmoid(score)
         if deterministic_labels:
@@ -113,6 +113,45 @@ def generate_base_case(
         sparse_arr[idx] = sparse
 
     return y, dense_arr, sparse_arr
+
+
+def generate_sequential_only(
+    n_rows=200_000,
+    n_items=100_000,
+    emb_dim=16,
+    seq_len=128,
+    seed=42,
+    noise_std=0.2,
+    w_seq=1.0,
+    bias=-3.3,
+    deterministic_labels=False,
+    recency_alpha=2.0,
+):
+    rng = np.random.default_rng(seed)
+    if seq_len < 1:
+        raise ValueError("seq_len must be >= 1.")
+
+    item_emb = rng.normal(0, 1, size=(n_items, emb_dim)).astype(np.float32)
+    click_vec = rng.normal(0, 1, size=(emb_dim,)).astype(np.float32)
+    recency_weights = np.linspace(1.0, recency_alpha, seq_len).astype(np.float32)
+    recency_weights /= recency_weights.sum()
+
+    y = np.zeros((n_rows,), dtype=np.uint8)
+    seq = np.zeros((n_rows, seq_len), dtype=np.int32)
+
+    for idx in range(n_rows):
+        seq_ids = rng.integers(1, n_items + 1, size=(seq_len,))
+        seq[idx] = seq_ids
+        token_embs = item_emb[seq_ids - 1]
+        sims = np.dot(token_embs, click_vec) / np.sqrt(emb_dim)
+        s_seq = float(np.dot(recency_weights, sims))
+        noise = float(rng.normal(0, noise_std))
+        score = bias + w_seq * s_seq + noise
+        if deterministic_labels:
+            y[idx] = 1 if score > 0.0 else 0
+        else:
+            y[idx] = 1 if rng.random() < sigmoid(score) else 0
+    return y, seq
 
 
 def write_npz_splits(
@@ -156,6 +195,46 @@ def write_npz_splits(
         json.dump(stats, f, indent=2)
 
 
+def write_seq_npz_splits(
+    y,
+    seq,
+    out_dir,
+    train_frac=0.8,
+    val_frac=0.1,
+    generation_config=None,
+):
+    total = y.shape[0]
+    n_train = int(total * train_frac)
+    n_val = int(total * val_frac)
+    n_test = total - n_train - n_val
+    splits = {
+        "train": slice(0, n_train),
+        "val": slice(n_train, n_train + n_val),
+        "test": slice(n_train + n_val, total),
+    }
+    for name, sl in splits.items():
+        np.savez_compressed(
+            os.path.join(out_dir, f"{name}.npz"),
+            y=y[sl],
+            seq=seq[sl],
+        )
+    stats = {
+        "rows_total": int(total),
+        "rows_train": int(n_train),
+        "rows_val": int(n_val),
+        "rows_test": int(n_test),
+        "ctr_total": float(y.mean()) if total else 0.0,
+        "ctr_train": float(y[splits["train"]].mean()) if n_train else 0.0,
+        "ctr_val": float(y[splits["val"]].mean()) if n_val else 0.0,
+        "ctr_test": float(y[splits["test"]].mean()) if n_test else 0.0,
+        "seq_len": int(seq.shape[1]) if seq.ndim == 2 else 0,
+    }
+    if generation_config is not None:
+        stats["generation_config"] = generation_config
+    with open(os.path.join(out_dir, "stats.json"), "w") as f:
+        json.dump(stats, f, indent=2)
+
+
 def write_tsv(y, dense, sparse, out_path):
     with open(out_path, "w") as f:
         for idx in range(y.shape[0]):
@@ -180,6 +259,8 @@ def main():
     ap.add_argument("--bias", type=float, default=-3.3)
     ap.add_argument("--dataset_mode", choices=["base", "seq_easy", "seq_hard"], default="base")
     ap.add_argument("--history_len", type=int, default=8)
+    ap.add_argument("--seq_len", type=int, default=128)
+    ap.add_argument("--sequential_only", action="store_true")
     ap.add_argument("--recency_alpha", type=float, default=2.0)
     ap.add_argument("--zero_dense", action="store_true")
     ap.add_argument("--n_anchor_fields", type=int, default=0)
@@ -196,35 +277,16 @@ def main():
         raise ValueError("train_frac and val_frac must be >0 and sum to <1.")
     os.makedirs(args.out_dir, exist_ok=True)
 
-    y, dense, sparse = generate_base_case(
-        n_rows=args.rows,
-        n_users=args.users,
-        n_items=args.n_items,
-        emb_dim=args.emb_dim,
-        seed=args.seed,
-        noise_std=args.noise_std,
-        w_user_item=args.w_user_item,
-        w_seq=args.w_seq,
-        w_dense=args.w_dense,
-        bias=args.bias,
-        dataset_mode=args.dataset_mode,
-        history_len=args.history_len,
-        recency_alpha=args.recency_alpha,
-        zero_dense=args.zero_dense,
-        n_anchor_fields=args.n_anchor_fields,
-        anchor_cardinality=args.anchor_cardinality,
-        deterministic_labels=args.deterministic_labels,
-        include_history_noise=args.include_history_noise,
-        unused_sparse_id=args.unused_sparse_id,
-    )
     generation_config = {
         "rows": int(args.rows),
         "users": int(args.users),
         "n_items": int(args.n_items),
         "emb_dim": int(args.emb_dim),
         "seed": int(args.seed),
+        "sequential_only": bool(args.sequential_only),
         "dataset_mode": args.dataset_mode,
         "history_len": int(args.history_len),
+        "seq_len": int(args.seq_len),
         "recency_alpha": float(args.recency_alpha),
         "zero_dense": bool(args.zero_dense),
         "noise_std": float(args.noise_std),
@@ -240,17 +302,60 @@ def main():
         "train_frac": float(args.train_frac),
         "val_frac": float(args.val_frac),
     }
-    write_npz_splits(
-        y=y,
-        dense=dense,
-        sparse=sparse,
-        out_dir=args.out_dir,
-        train_frac=args.train_frac,
-        val_frac=args.val_frac,
-        generation_config=generation_config,
-    )
-    if args.write_tsv:
-        write_tsv(y, dense, sparse, os.path.join(args.out_dir, "base.tsv"))
+    if args.sequential_only:
+        y, seq = generate_sequential_only(
+            n_rows=args.rows,
+            n_items=args.n_items,
+            emb_dim=args.emb_dim,
+            seq_len=args.seq_len,
+            seed=args.seed,
+            noise_std=args.noise_std,
+            w_seq=args.w_seq,
+            bias=args.bias,
+            deterministic_labels=args.deterministic_labels,
+            recency_alpha=args.recency_alpha,
+        )
+        write_seq_npz_splits(
+            y=y,
+            seq=seq,
+            out_dir=args.out_dir,
+            train_frac=args.train_frac,
+            val_frac=args.val_frac,
+            generation_config=generation_config,
+        )
+    else:
+        y, dense, sparse = generate_base_case(
+            n_rows=args.rows,
+            n_users=args.users,
+            n_items=args.n_items,
+            emb_dim=args.emb_dim,
+            seed=args.seed,
+            noise_std=args.noise_std,
+            w_user_item=args.w_user_item,
+            w_seq=args.w_seq,
+            w_dense=args.w_dense,
+            bias=args.bias,
+            dataset_mode=args.dataset_mode,
+            history_len=args.history_len,
+            recency_alpha=args.recency_alpha,
+            zero_dense=args.zero_dense,
+            n_anchor_fields=args.n_anchor_fields,
+            anchor_cardinality=args.anchor_cardinality,
+            deterministic_labels=args.deterministic_labels,
+            include_history_noise=args.include_history_noise,
+            unused_sparse_id=args.unused_sparse_id,
+        )
+        write_npz_splits(
+            y=y,
+            dense=dense,
+            sparse=sparse,
+            out_dir=args.out_dir,
+            train_frac=args.train_frac,
+            val_frac=args.val_frac,
+            generation_config=generation_config,
+        )
+        if args.write_tsv:
+            write_tsv(y, dense, sparse, os.path.join(args.out_dir, "base.tsv"))
     print(f"Wrote synthetic splits to {args.out_dir}")
 
 

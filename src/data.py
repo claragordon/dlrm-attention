@@ -18,3 +18,19 @@ class CriteoNPZ(Dataset):
             torch.from_numpy(self.sparse[idx]),
             torch.tensor(self.y[idx]),
         )
+
+
+class SeqNPZ(Dataset):
+    def __init__(self, npz_path: str, seq_key: str = "seq"):
+        d = np.load(npz_path)
+        self.y = d["y"].astype(np.float32)               # [N]
+        self.seq = d[seq_key].astype(np.int64)           # [N, L]
+
+    def __len__(self):
+        return self.y.shape[0]
+
+    def __getitem__(self, idx):
+        return (
+            torch.from_numpy(self.seq[idx]),
+            torch.tensor(self.y[idx]),
+        )
