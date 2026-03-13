@@ -13,6 +13,68 @@ from src.metrics import compute_metrics
 from src.model_seq import SeqCTRModel
 
 
+def run_benchmark(model, loader, device, loss_fn, opt, warmup_steps, benchmark_steps, seq_len):
+    model.train()
+    data_iter = iter(loader)
+
+    def next_batch():
+        nonlocal data_iter
+        try:
+            return next(data_iter)
+        except StopIteration:
+            data_iter = iter(loader)
+            return next(data_iter)
+
+    # Warmup
+    for _ in range(warmup_steps):
+        seq_ids, y = next_batch()
+        seq_ids = seq_ids.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
+        logit = model(seq_ids)
+        loss = loss_fn(logit, y)
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+
+    if device == "cuda":
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+
+    step_times = []
+    loss_sum = 0.0
+    token_count = 0
+    for _ in range(benchmark_steps):
+        seq_ids, y = next_batch()
+        seq_ids = seq_ids.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
+        bsz = int(seq_ids.size(0))
+        t0 = time.perf_counter()
+        logit = model(seq_ids)
+        loss = loss_fn(logit, y)
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+        if device == "cuda":
+            torch.cuda.synchronize()
+        dt = time.perf_counter() - t0
+        step_times.append(dt)
+        loss_sum += float(loss.item())
+        token_count += bsz * seq_len
+
+    total_time = float(sum(step_times))
+    result = {
+        "warmup_steps": int(warmup_steps),
+        "benchmark_steps": int(benchmark_steps),
+        "avg_step_time_s": total_time / max(1, benchmark_steps),
+        "tokens_per_sec": token_count / max(total_time, 1e-12),
+        "examples_per_sec": (token_count / max(seq_len, 1)) / max(total_time, 1e-12),
+        "avg_train_loss": loss_sum / max(1, benchmark_steps),
+    }
+    if device == "cuda":
+        result["max_cuda_memory_bytes"] = int(torch.cuda.max_memory_allocated())
+    return result
+
+
 def eval_loop(model, loader, device):
     model.eval()
     ys, logits = [], []
@@ -47,6 +109,9 @@ def main():
     ap.add_argument("--use_flex_attention", action="store_true")
     ap.add_argument("--recency_bias", type=float, default=0.0)
     ap.add_argument("--causal", action="store_true")
+    ap.add_argument("--benchmark_only", action="store_true")
+    ap.add_argument("--warmup_steps", type=int, default=100)
+    ap.add_argument("--benchmark_steps", type=int, default=500)
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -108,6 +173,22 @@ def main():
 
     opt = Adam(model.parameters(), lr=args.lr)
     loss_fn = torch.nn.BCEWithLogitsLoss()
+
+    if args.benchmark_only:
+        benchmark = run_benchmark(
+            model=model,
+            loader=train_loader,
+            device=device,
+            loss_fn=loss_fn,
+            opt=opt,
+            warmup_steps=args.warmup_steps,
+            benchmark_steps=args.benchmark_steps,
+            seq_len=args.seq_len,
+        )
+        with open(os.path.join(args.out_dir, "benchmark.json"), "w") as f:
+            json.dump(benchmark, f, indent=2)
+        print("BENCHMARK:", benchmark)
+        return
 
     step = 0
     best_auc = -float("inf")
