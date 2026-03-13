@@ -13,7 +13,17 @@ from src.metrics import compute_metrics
 from src.model_seq import SeqCTRModel
 
 
-def run_benchmark(model, loader, device, loss_fn, opt, warmup_steps, benchmark_steps, seq_len):
+def run_benchmark(
+    model,
+    loader,
+    device,
+    loss_fn,
+    opt,
+    warmup_steps,
+    benchmark_steps,
+    seq_len,
+    log_every=0,
+):
     model.train()
     data_iter = iter(loader)
 
@@ -26,7 +36,7 @@ def run_benchmark(model, loader, device, loss_fn, opt, warmup_steps, benchmark_s
             return next(data_iter)
 
     # Warmup
-    for _ in range(warmup_steps):
+    for step in range(warmup_steps):
         seq_ids, y = next_batch()
         seq_ids = seq_ids.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
@@ -35,6 +45,8 @@ def run_benchmark(model, loader, device, loss_fn, opt, warmup_steps, benchmark_s
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
+        if log_every > 0 and (step + 1) % log_every == 0:
+            print(f"[bench] warmup step {step + 1}/{warmup_steps}", flush=True)
 
     if device == "cuda":
         torch.cuda.synchronize()
@@ -43,7 +55,7 @@ def run_benchmark(model, loader, device, loss_fn, opt, warmup_steps, benchmark_s
     step_times = []
     loss_sum = 0.0
     token_count = 0
-    for _ in range(benchmark_steps):
+    for step in range(benchmark_steps):
         seq_ids, y = next_batch()
         seq_ids = seq_ids.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
@@ -60,6 +72,8 @@ def run_benchmark(model, loader, device, loss_fn, opt, warmup_steps, benchmark_s
         step_times.append(dt)
         loss_sum += float(loss.item())
         token_count += bsz * seq_len
+        if log_every > 0 and (step + 1) % log_every == 0:
+            print(f"[bench] timed step {step + 1}/{benchmark_steps}", flush=True)
 
     total_time = float(sum(step_times))
     result = {
@@ -112,6 +126,7 @@ def main():
     ap.add_argument("--benchmark_only", action="store_true")
     ap.add_argument("--warmup_steps", type=int, default=100)
     ap.add_argument("--benchmark_steps", type=int, default=500)
+    ap.add_argument("--benchmark_log_every", type=int, default=0)
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -184,6 +199,7 @@ def main():
             warmup_steps=args.warmup_steps,
             benchmark_steps=args.benchmark_steps,
             seq_len=args.seq_len,
+            log_every=args.benchmark_log_every,
         )
         with open(os.path.join(args.out_dir, "benchmark.json"), "w") as f:
             json.dump(benchmark, f, indent=2)
