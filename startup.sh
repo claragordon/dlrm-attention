@@ -44,6 +44,11 @@ find "$SITE_PACKAGES" -maxdepth 1 -type d -name 'torch*' -exec rm -rf {} + || tr
 echo "[startup] installing nightly torch stack"
 pip install --pre torch torchvision torchaudio --index-url "$TORCH_INDEX_URL"
 
+echo "[startup] installing project requirements"
+if [[ -f requirements.txt ]]; then
+  pip install -r requirements.txt
+fi
+
 echo "[startup] validating torch + flex_attention"
 unset LD_LIBRARY_PATH || true
 "$VENV_DIR/bin/python" - <<'PY'
